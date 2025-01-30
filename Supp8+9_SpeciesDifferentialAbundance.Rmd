@@ -1,0 +1,221 @@
+---
+title: "TUMS - Supplementary Data"
+subtitle: "Supplementary Figure 8 - Species Differential Abundance"
+author: "Kimberley Parkin"
+---
+
+# In this script, we use the DESeq2 package to identify differentially abundant ASVs between groups.
+
+# Set up
+## Load packages
+```{r}
+library(phyloseq)
+library(ggplot2)
+library(reshape2)
+library(plyr)
+library(dplyr)
+library(DESeq2)
+library(tidyverse)
+
+# check package version
+packageVersion("DESeq2")
+```
+
+## Load in functions
+```{r}
+# credit: Nelly Amenyogbe 
+source('/home/kparkin/file_workspace/Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/R_functions/remove.low.counts.R')
+```
+
+## Load in phyloseq object as count data
+```{r}
+datadir <- '/home/kparkin/file_workspace/Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/data'
+
+ps <- readRDS(file.path(datadir, '/phyloseq_objects/TUMS_phyloseq_counts_complete.rds'))
+```
+
+## Get metadata from phyloseq object
+```{r}
+# Get metadata
+meta <- ps %>%
+  sample_data() %>%
+  data.frame()
+```
+
+## Subset samples to remove NA values
+```{r}
+ps = subset_samples(ps, TUMS_ID != "NA")
+ps = subset_samples(ps, age == "18")
+
+table(sample_data(ps)$randomisation_group)
+# There are 148 in the "A" group and 152 in the "B" group
+```
+
+# Filter OTU table to only include abundant ASVs
+## Create matrix of ASVs from phyloseq object
+```{r}
+# Get OTU table
+# we need our otu table transposed in order to use the remove_low_counts function
+tab <- t(data.frame(otu_table(ps))) 
+```
+
+## Retain only ASVs present in at least 5% of samples
+```{r}
+# remove low counts
+otu.f <- remove.low.counts(as.data.frame(tab), 1, 5)
+  otu.f <- otu.f$df
+  otu.f
+```
+
+## Filter phyloseq object to include relevant ASVs only
+```{r}
+ps.f <- subset_taxa(ps, rownames(tax_table(ps)) %in% colnames(otu.f))
+```
+
+# Run DESeq2
+## Create DESeq2 objects
+```{r}
+dds <- phyloseq_to_deseq2(ps.f, design = ~ randomisation_group)
+
+# Because there is a zero in almost every row, need to manually specify geoMeans  
+# Source: https://support.bioconductor.org/p/62246/#62250
+
+cts <- counts(dds)
+geoMeans <- apply(cts, 1, function(row) if (all(row == 0)) 0 else exp(mean(log(row[row != 0]))))
+dds <- estimateSizeFactors(dds, geoMeans = geoMeans)
+
+dds
+```
+
+## Run test
+```{r}
+ds.wald <- DESeq(dds, test = "Wald", fitType = "parametric")
+```
+
+# Get deseq results
+```{r}
+taxtab <- data.frame(tax_table(ps))
+taxtab$OTU.name <- rownames(taxtab) 
+
+# Get deseq results
+res <- data.frame(results(ds.wald))
+res$OTU.name <- rownames(res)
+
+# join with taxonomy table
+res <- join(res, taxtab, by = "OTU.name")
+
+# get significant results only
+sigtab <- filter(res, padj < 0.01)
+```
+
+```{r}
+dim(sigtab)
+unique(sigtab$Genus)
+# There are 55 differentially abundant genera between randomisation groups
+```
+
+# Plot results
+## Arrange data
+```{r}
+# we will set our factor levels from the most to least affected genus (based log2FC values), and the phyla according to most to least represented
+x = tapply(sigtab$log2FoldChange, sigtab$Phylum, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Phylum = factor(as.character(sigtab$Phylum), levels=names(x))
+x = tapply(sigtab$log2FoldChange, sigtab$Genus, function(x) max(x))
+x = sort(x, TRUE)
+sigtab$Genus = factor(as.character(sigtab$Genus), levels = names(x))
+```
+
+
+## Plot
+```{r}
+p <- ggplot(sigtab, aes(x = Genus, y = log2FoldChange, fill = Phylum)) +
+  geom_point(size = 2, alpha = 0.8, color = "black", shape = 21) +
+  theme_bw() +
+  theme(axis.text.x = element_text(hjust = 0, vjust = 0.5, size = 10),
+        axis.text.y = element_text(size = 12),
+        plot.title = element_text(face = "bold"),
+        axis.line = element_line(size = 0.8),
+        legend.text = element_text(size = 12),
+        legend.title = element_text(size = 14),
+        plot.margin = margin(t = 1, r = 5, b = 5, l = 5)) +  # Adjusting plot margins) +
+  ggtitle("Genus") +
+  labs(x = "", y = "Log2 Fold-Change") +
+  coord_flip() +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "#08519c")
+
+p
+
+#ggsave(file.path(plotdir, 'suppfig8_diff.abund.pdf'), device = "pdf", dpi = 300, width = 8, height = 8)
+```
+
+# Plot counts 1
+```{r}
+# visualize the top hits
+
+# get a list of the most significant features
+sigtab <- sigtab[order(sigtab$pvalue),]
+
+features <- sigtab$OTU.name
+
+plotCounts(dds = dds,
+           gene = features[1],
+           intgroup = "randomisation_group",
+           transform = TRUE,
+           normalized = TRUE)
+```
+# Plot counts 2
+```{r}
+# visualize the top hits
+
+# get a list of the most significant features
+sigtab <- sigtab[order(sigtab$pvalue),]
+
+features <- sigtab$OTU.name
+
+plotCounts(dds = dds,
+           gene = features[2],
+           intgroup = "randomisation_group",
+           transform = TRUE,
+           normalized = TRUE)
+```
+
+# Plot counts 3
+```{r}
+# visualize the top hits
+
+# get a list of the most significant features
+sigtab <- sigtab[order(sigtab$pvalue),]
+
+features <- sigtab$OTU.name
+
+plotCounts(dds = dds,
+           gene = features[3],
+           intgroup = "randomisation_group",
+           transform = TRUE,
+           normalized = TRUE)
+```
+
+# Plot counts 4
+```{r}
+# visualize the top hits
+
+# get a list of the most significant features
+sigtab <- sigtab[order(sigtab$pvalue),]
+
+features <- sigtab$OTU.name
+
+plotCounts(dds = dds,
+           gene = features[4],
+           intgroup = "randomisation_group",
+           transform = TRUE,
+           normalized = TRUE)
+```
+
+
+# Session info
+```{r}
+sessionInfo()
+```
+
+##### END

@@ -1,0 +1,126 @@
+---
+title: "TUMS - Results"
+subtitle: "Figure 2A - Taxa Bar Plot"
+author: "Kimberley Parkin"
+---
+
+# load packages
+```{r}
+library(microViz)
+library(phyloseq)
+library(ggplot2)
+library(tidyverse)
+library(microbiome)
+library(ggstatsplot)
+```
+
+# create directories
+```{r}
+plotdir <- 'w://Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/src/TUMS/Paper_2_RCT/figures'
+resdir <- 'w://Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/src/TUMS/Paper_2_RCT/results'
+datadir <- 'w://Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/data'
+```
+
+# load in phyloseq object
+```{r}
+pseq <- readRDS(file.path(datadir, '/phyloseq_objects/TUMS_phyloseq_counts_complete.rds'))
+```
+
+```{r}
+# remove sequencing replicate samples
+pseq <- subset_samples(pseq, TUMS_ID != "NA")
+
+# change 'age' variable to factor and relevel
+sample_data(pseq)$age <- as.character(sample_data(pseq)$age)
+```
+
+# recode age and randomisation_group variables
+```{r}
+# get metadata from phyloseq object
+metadata <- pseq %>%
+  sample_data() %>%
+  data.frame()
+
+metadata <- metadata %>% 
+  dplyr::mutate(age = case_when(age == "6" ~ "6 months",
+                                age == "18" ~ "18 months",
+                                T ~ NA_character_),
+                age = as.factor(age),
+                age = relevel(age, "6 months"))
+
+metadata <- metadata %>% 
+  dplyr::mutate(randomisation_group = case_when(randomisation_group == "A" ~ "Treatment",
+                                                randomisation_group == "B" ~ "Control",
+                                                T ~ NA_character_),
+                randomisation_group = as.factor(randomisation_group),
+                randomisation_group = relevel(randomisation_group, "Control"))
+```
+
+# add metadata back into phyloseq object
+```{r}
+sample_data(pseq) <- metadata
+```
+
+# subset phyloseq object by treatment group
+```{r}
+# subset to control
+pseq_con <- subset_samples(pseq, randomisation_group == 'Control')
+
+# subset to intervention group
+pseq_treat <- subset_samples(pseq, randomisation_group == 'Treatment')
+```
+
+# taxa bar plots
+```{r}
+# control
+plot1 <- pseq_con %>%
+  ps_select(age, randomisation_group) %>%
+  phyloseq::merge_samples(group = "age") %>%
+  comp_barplot(tax_level = "Phylum", 
+               n_taxa = 8, 
+               bar_width = 0.9,
+               bar_outline_width = 0.03,
+               taxon_renamer = function(x) stringr::str_replace_all(x, " p__", "")) +
+  labs(x = NULL, y = 'Abundance') +
+  theme_bw() +
+  theme(legend.position = "left",
+        text = element_text(size = 14),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size = 10))
+```
+
+```{r}
+# treatment group
+plot2 <- pseq_treat %>%
+  ps_select(age, randomisation_group) %>%
+  phyloseq::merge_samples(group = "age") %>%
+  comp_barplot(tax_level = "Phylum", 
+               n_taxa = 8, 
+               bar_width = 0.9,
+               bar_outline_width = 0.03,
+               taxon_renamer = function(x) stringr::str_replace_all(x, " p__", "")) +
+  labs(x = NULL, y = 'Abundance') +
+  theme_bw() + 
+  theme(legend.position = "left",
+        text = element_text(size = 14),
+        legend.text = element_text(size = 10),
+        axis.text.x = element_text(size = 10),
+        axis.text.y = element_text(size = 10))
+```
+
+```{r}
+# combine plots with shared legend
+patchwork::wrap_plots(plot1, plot2, nrow = 2, guides = "collect")
+```
+
+```{r}
+# save plot
+ggsave(file.path(plotdir, 'fig2A.taxabarplot.pdf'), device = "pdf", dpi = 300, width = 5, height = 5)
+```
+
+# session info
+```{r}
+sessionInfo()
+```

@@ -1,0 +1,211 @@
+---
+title: "TUMS - Supplementary Data"
+subtitle: "Supplementary Figure 5 - Batch Effect"
+author: "Kimberley Parkin"
+---
+
+
+*Description*
+
+- Our TUMS samples were sequenced in two separate batches:
+      - all the 6-month samples and some 18-month samples are in sequencing batch 1, 
+      - and the remaining 18-month samples are in sequencing batch 2
+
+- We randomly selected three 18-month sample libraries from batch 1 to be re-sequenced in batch 2 to check for batch effects
+
+
+# Load packages 
+```{r}
+library(tidyverse)
+library(Hmisc)
+library(ggplot2)
+library(ggfortify)
+library(phyloseq)
+```
+
+# Create directories
+```{r}
+plotdir <- '/home/kparkin/file_workspace/Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/src/TUMS/Paper_2_RCT/figures'
+resdir <- '/home/kparkin/file_workspace/Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/src/TUMS/Paper_2_RCT/results'
+datadir <- '/home/kparkin/file_workspace/Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/data'
+
+# sequencing batch 1: 170 6-month samples and 35 18-month samples (195 total)
+# sequencing batch 2: 95 18-month samples (3 samples repeated from batch 1)
+
+# total sequenced samples: 290 (287 unique samples)
+# repeat samples for batch effect analysis: "BBD7192", "BBD7271", "BBH0550"
+```
+
+# Load in data
+```{r}
+# batch 1
+qc1 <- read.table(file.path(datadir, '/microba_batch1/sample_qc.tsv'), header = T, sep = "\t", quote = "") 
+
+# batch 2
+qc2 <- read.table(file.path(datadir, '/microba_batch2/sample_qc.tsv'), header = T, sep = "\t", quote = "") 
+```
+
+```{r}
+# add column to identify batch number
+qc1 <- qc1 %>%
+  add_column(batch = "1",
+             .after = "ID")
+
+qc2 <- qc2 %>%
+  add_column(batch = "2",
+             .after = "ID")
+```
+
+# Merge sequencing batches
+```{r}
+qc <- full_join(qc1, qc2)
+
+# save qc data
+saveRDS(qc, file.path(resdir, 'complete_qc.rds'))
+```
+
+# Add in metadata information
+```{r}
+# load in sample information table
+meta_samples <- read.csv(file.path(datadir, '/metadata_tables/meta_samples.csv'), header = T)
+
+# select age column from meta_samples data frame
+sample_age <- select(meta_samples, c(sample_ID, age))
+
+# rename ID column so it is the same as qc dataframe
+sample_age <- dplyr::rename(sample_age, ID = sample_ID)
+
+# add in age column to qc data frame
+qc <- merge(sample_age, qc)
+```
+
+# Subset to only 18-month samples
+```{r}
+# subset only 18-month samples
+qc <- subset(qc, age == "18")
+```
+
+
+# Plots
+
+## Histograms
+```{r}
+# total mapped reads
+p <- ggplot(qc, aes(x = STRINGENT_READS_MAPPED, fill = batch)) +
+  geom_histogram(aes(y = after_stat(density)), 
+                 colour = 1,
+                 bins = 50) +
+  facet_grid(. ~ batch) +                         
+  geom_density(linewidth = 1.2, colour = "black", fill = NA)
+
+print(p)
+
+# save plot
+ggsave(file.path(plotdir, 'qc_stringent_reads.pdf'), device = "pdf", dpi = 300, width = 8, height = 5)
+```
+
+```{r}
+# total human DNA
+p <- ggplot(qc, aes(x = TOTAL_HUMAN, fill = batch)) +
+  geom_histogram(bins = 75) +
+  facet_grid(. ~ batch) 
+
+print(p)
+
+# save plot
+ggsave(file.path(plotdir, 'qc_human_dna.pdf'), device = "pdf", dpi = 300, width = 8, height = 5)
+```
+
+```{r}
+# total assigned reads
+p <- ggplot(qc, aes(x = MGDB_ASSIGNED_PERCENT, fill = batch)) +
+  geom_histogram(aes(y = after_stat(density)), 
+                 colour = 1,
+                 bins = 50) +
+  facet_grid(. ~ batch) +
+  geom_density(linewidth = 1.2, colour = "black", fill = NA)
+
+print(p)
+
+# save plot
+ggsave(file.path(plotdir, 'qc_mgdb_percent.pdf'), device = "pdf", dpi = 300, width = 8, height = 5)
+```
+
+# Check for batch effects
+
+## Load in phyloseq object
+```{r}
+# load in phyloseq object
+pseq <- readRDS(file.path(datadir, '/phyloseq_objects/TUMS_phyloseq_counts_complete.rds'))
+
+# subset to 18-month samples only
+pseq <- subset_samples(pseq, age == '18')
+```
+
+## Convert batch to character instead of numeric
+```{r}
+# access the sample data
+sample_data <- pseq@sam_data
+
+# convert the 'batch' column to character
+sample_data$batch <- as.character(sample_data$batch)
+
+# add batch number to sequencing replicates
+sample_data$batch[is.na(sample_data$batch) & grepl("_2", rownames(sample_data))] <- "2"
+
+# update the sample data in the phyloseq object
+pseq@sam_data <- sample_data 
+```
+
+## Ordination
+```{r}
+pseq.ord <- ordinate(pseq, "NMDS", "bray")
+```
+
+## Plot ordination
+```{r}
+plot_ordination(pseq, pseq.ord, color = "batch") +
+  theme_bw()
+
+# save plot
+ggsave(file.path(plotdir, 'qc_beta_diversity_batch.pdf'), device = "pdf", dpi = 300)
+```
+
+```{r}
+p <- plot_ordination(pseq, 
+                pseq.ord, 
+                color = "sequencing_replicate") +
+  theme_bw()
+
+p
+
+# save plot
+ggsave(file.path(plotdir, 'qc_beta_diversity_replicate.pdf'), device = "pdf", dpi = 300)
+```
+
+# Taxa bar plots
+
+```{r}
+pseq_rep1 <- subset_samples(pseq, sequencing_replicate == '1')
+p1 <- plot_bar(pseq_rep1, fill = "Phylum")
+
+print(p1)
+
+# save plot
+ggsave(file.path(plotdir, 'qc_taxa_bar_plot_replicate1.pdf'), device = "pdf", dpi = 300)
+```
+
+```{r}
+pseq_rep2 <- subset_samples(pseq, sequencing_replicate == '2')
+p2 <- plot_bar(pseq_rep2, fill = "Phylum")
+
+print(p2)
+
+# save plot
+ggsave(file.path(plotdir, 'qc_taxa_bar_plot_replicate2.pdf'), device = "pdf", dpi = 300)
+```
+
+# session info
+```{r}
+sessionInfo()
+```

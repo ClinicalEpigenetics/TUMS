@@ -1,0 +1,188 @@
+---
+title: "TUMS - Results"
+subtitle: "Figure 2B - Beta Diversity"
+author: "Kimberley Parkin"
+---
+
+# load packages
+```{r}
+library(phyloseq)
+library(ggpubr)
+library(tidyverse)
+library(vegan)
+library(splines)
+library(dunn.test)
+library(reshape2)
+library(GMDecomp)
+library(stringr)
+```
+
+# create directories
+```{r}
+plotdir <- 'w://Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/src/TUMS/Paper_2_RCT/figures'
+resdir <- 'w://Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/src/TUMS/Paper_2_RCT/results'
+datadir <- 'w://Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/data'
+```
+
+# load in phyloseq object
+```{r}
+pseq <- readRDS(file.path(datadir, '/phyloseq_objects/TUMS_phyloseq_counts_complete.rds'))
+```
+
+```{r}
+# remove sequencing replicate samples
+pseq <- subset_samples(pseq, TUMS_ID != "NA")
+
+# change 'age' variable to character
+sample_data(pseq)$age <- as.character(sample_data(pseq)$age)
+```
+
+# recode age and randomisation_group variables
+```{r}
+# get metadata from phyloseq object
+metadata <- pseq %>%
+  sample_data() %>%
+  data.frame()
+
+metadata <- metadata %>% 
+  dplyr::mutate(age = case_when(age == "6" ~ "6 months",
+                                age == "18" ~ "18 months",
+                                T ~ NA_character_),
+                age = as.factor(age),
+                age = relevel(age, "6 months"))
+
+metadata <- metadata %>% 
+  dplyr::mutate(randomisation_group = case_when(randomisation_group == "A" ~ "Treatment",
+                                                randomisation_group == "B" ~ "Control",
+                                                T ~ NA_character_),
+                randomisation_group = as.factor(randomisation_group),
+                randomisation_group = relevel(randomisation_group, "Control"))
+```
+
+# add metadata back into phyloseq object
+```{r}
+sample_data(pseq) <- metadata
+```
+
+# calculate diversity
+```{r}
+p.rich <- plot_richness(pseq, measures = c("Observed", "Shannon")) 
+```
+
+# get richness data from plot
+```{r}
+rich.data <- p.rich$data
+
+rich.data$variable <- gsub("Observed", "Observed Richness", rich.data$variable)
+rich.data$variable <- gsub("Shannon", "Shannon Diversity", rich.data$variable)
+
+# Save alpha diversity scores as a data frame for use in downstream analysis
+alpha_diversity <- select(rich.data, TUMS_ID, variable, value)
+
+#saveRDS(alpha_diversity, file.path(resdir, 'alpha_diversity.rds'))
+```
+
+# run Student's T-test
+```{r}
+# pre-intervention richness
+rich.data %>% 
+  select(variable, value, randomisation_group, age) %>% 
+  filter(age == '6 months', 
+         variable == 'Observed Richness') %>%
+  t.test(value ~ randomisation_group, data=.) %>% 
+  broom::tidy() %>% 
+  mutate(across(where(is.numeric), round, 2))
+```
+
+```{r}
+# post-intervention richness
+rich.data %>% 
+  select(variable, value, randomisation_group, age) %>% 
+  filter(age == '18 months', 
+         variable == 'Observed Richness') %>%
+  t.test(value ~ randomisation_group, data=.) %>% 
+  broom::tidy() %>% 
+  mutate(across(where(is.numeric), round, 2))
+```
+
+```{r}
+# pre-intervention Shannon Index
+rich.data %>% 
+  select(variable, value, randomisation_group, age) %>% 
+  filter(age == '6 months', 
+         variable == 'Shannon Diversity') %>%
+  t.test(value ~ randomisation_group, data=.) %>% 
+  broom::tidy() %>% 
+  mutate(across(where(is.numeric), round, 2))
+```
+
+```{r}
+# post-intervention Shannon Index
+rich.data %>% 
+  select(variable, value, randomisation_group, age) %>% 
+  filter(age == '18 months', 
+         variable == 'Shannon Diversity') %>%
+  t.test(value ~ randomisation_group, data=.) %>% 
+  broom::tidy() %>% 
+  mutate(across(where(is.numeric), round, 2))
+```
+
+# cast the results
+```{r}
+#saveRDS(wilcox.res, file.path(resdir, 'alpha_diversity_6m_randomisation_group.rds'))
+```
+
+# plot richness
+```{r}
+richness <- subset(rich.data, variable == "Observed Richness")
+
+ggboxplot(richness, x = "age", y = "value", 
+          color = 'randomisation_group',
+          fill = 'randomisation_group',
+          alpha = 0.5,
+          add = "jitter", scales = 'free') +
+  scale_x_discrete(name = "age") +
+  labs(title = "Overall (n = 300)",
+       y = "Observed richness") +
+  scale_color_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set2") +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        text = element_text(size = 14),
+        legend.text = element_text(size = 10),
+        legend.title = element_blank(),
+        axis.title.x = element_blank())
+
+# save plot
+#ggsave(file.path(plotdir, 'fig2C.alphadiversity_richness.pdf'), device = "pdf", dpi = 300, width = 6, height = 6)
+```
+
+# plot Shannon Index
+```{r}
+shannon <- subset(rich.data, variable == "Shannon Diversity")
+
+ggboxplot(shannon, x = "age", y = "value", 
+          color = 'randomisation_group',
+          fill = 'randomisation_group',
+          alpha = 0.5,
+          add = "jitter", scales = 'free') +
+  scale_x_discrete(name = "age") +
+  labs(title = "Overall (n = 300)",
+       y = "Shannon diversity") +
+  scale_color_brewer(palette = "Set2") +
+  scale_fill_brewer(palette = "Set2") +
+  theme_bw() +
+  theme(legend.position = "bottom",
+        text = element_text(size = 14),
+        legend.text = element_text(size = 10),
+        legend.title = element_blank(),
+        axis.title.x = element_blank())
+
+# save plot
+#ggsave(file.path(plotdir, 'fig2D.alphadiversity_shannon.pdf'), device = "pdf", dpi = 300, width = 6, height = 6)
+```
+
+# session info
+```{r}
+sessionInfo()
+```

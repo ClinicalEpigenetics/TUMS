@@ -1,0 +1,190 @@
+---
+title: "TUMS - Results"
+subtitle: "Figure 3A - MetaCyc Groups"
+author: "Kimberley Parkin"
+---
+
+# load packages
+```{r}
+library(tidyverse)
+library(phyloseq)
+library(DESeq2)
+library(dplyr)
+library(ggrepel)
+```
+
+```{r}
+packageVersion('phyloseq')
+packageVersion('DESeq2')
+```
+
+# create directories
+```{r}
+functdata1 <- 'w://Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/data/microba_batch1/functional_profiles'
+functdata2 <- 'w://Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/data/microba_batch2/functional_profiles'
+
+
+plotdir <- 'w://Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/src/TUMS/Paper_2_RCT/figures'
+resdir <- 'w://Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/src/TUMS/Paper_2_RCT/results'
+datadir <- 'w://Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/data'
+```
+
+# load in phyloseq object
+```{r}
+pseq <- readRDS(file.path(datadir, 'phyloseq_objects/TUMS_phyloseq_counts_complete.rds'))
+
+# remove sequencing replicate samples
+pseq <- subset_samples(pseq, TUMS_ID != "NA")
+
+# subset to follow-up samples
+pseq <- subset_samples(pseq, age == "18")
+```
+
+# get metadata table
+```{r}
+metadata <- pseq %>%
+  sample_data() %>%
+  data.frame()
+```
+
+# load in functional data
+```{r}
+profiles1 <- read.table(file.path(functdata1, '/by_sample/MetaCyc_group.samples.tsv'), header = T, sep = "\t", quote = "")
+profiles2 <- read.table(file.path(functdata2, '/by_sample/MetaCyc_group.samples.tsv.gz'), header = T, sep = "\t", quote = "")
+```
+
+# merge profile data from batch 1 and 2
+```{r}
+# repeat samples for batch effect analysis: "BBD7192", "BBD7271", "BBH0550"
+# rename repeat samples for easy identification and to avoid duplication of rows during merge
+profiles2 <- profiles2 %>%
+  dplyr::rename(BBD7192_2 = BBD7192,
+                BBD7271_2 = BBD7271,
+                BBH0550_2 = BBH0550)
+```
+
+```{r}
+profiles <- full_join(profiles1, profiles2)
+
+# full_join introduces NA values, which need to be converted to 0
+profiles[is.na(profiles)] <- 0
+```
+
+# set row names
+```{r}
+# assign VariableID as rownames
+rownames(profiles) = profiles$VariableID
+
+# remove VariableID column
+profiles <- profiles[,-1]
+
+# convert to matrix
+profiles <- as.matrix(profiles)
+```
+
+# remove pathways with a row sum of 0
+```{r}
+# some pathways are not present in any sample, so we need to remove these
+
+to.remove = which(rowSums(profiles)==0)
+
+profiles = profiles[-to.remove,]
+```
+
+# subset to follow-up sample functional profiles
+```{r}
+# sub-set profiles data to only include 6-month samples
+profiles <- profiles[, colnames(profiles) %in% metadata$sample_ID] 
+```
+
+# DESeq2 analysis
+
+## change classes to data frame
+```{r}
+counts_data <- as.matrix(profiles)
+colData <- as.matrix(metadata)
+
+# convert counts data to integers 
+
+# make sure the rownames in colData matches the column names in countData
+all(colnames(counts_data) %in% rownames(colData)) # should be TRUE
+
+# reorder the rows of colData so it matches the columns of counts_data
+colData = colData[match(colnames(counts_data), rownames(colData)),]
+
+# make sure they are in the same order
+all(colnames(counts_data) == rownames(colData)) # should be TRUE
+```
+
+# construct DESeqDataSet object
+```{r}
+dds <- DESeqDataSetFromMatrix(countData = round(counts_data, 0), # round to the nearest whole number as DESeq cannot use decimals
+                              colData = colData, 
+                              design = ~ randomisation_group)
+```
+
+## run test
+```{r}
+ds.wald <- DESeq(dds, test = "Wald", fitType = "parametric")
+```
+
+# get DESeq2 results
+
+```{r}
+taxtab <- data.frame(profiles)
+taxtab$pathway <- rownames(taxtab) 
+
+# get deseq results
+res <- results(ds.wald)
+res$pathway <- rownames(res)
+
+res2 <- data.frame(results(ds.wald, contrast = c("randomisation_group", "A", "B")))
+res2$pathway <- rownames(res2)
+
+# join with taxonomy table
+res2 <- plyr::join(res2, taxtab, by = "pathway")
+
+# get significant results only
+sigtab <- filter(res2, padj < 0.05)
+```
+
+# Calculate confidence interval
+```{r}
+res2$log2FoldChange_lower <- res2$log2FoldChange - 1.96 * res2$lfcSE
+res2$log2FoldChange_upper <- res2$log2FoldChange + 1.96 * res2$lfcSE
+```
+
+## volcano plot
+```{r fig.width= 8, fig.height=8}
+# Set the threshold for significance
+threshold <- 0.05
+
+# Create a new column for whether the point is above the threshold
+res2$passed_threshold <- res2$padj < threshold
+
+# Sort the data by p-value in ascending order
+res2 <- res2[order(res2$padj), ]
+
+# Create the volcano plot with labels for points above the threshold
+volcano_plot <- ggplot(res2, aes(x = log2FoldChange, y = -log10(padj))) +
+  geom_point(aes(color = passed_threshold), size = 2) +
+  geom_text_repel(data = head(subset(res2, passed_threshold), n = 10),
+                  aes(label = pathway), hjust = 1.2, vjust = 1.2, size = 8) +
+  scale_color_manual(values = c("TRUE" = "red", "FALSE" = "black")) +
+  theme_bw(base_size = 20) +
+  labs(x = "log2 fold change", y = "-log10(adjusted p-value)", color = "Above Threshold") +
+  theme(legend.position = "bottom")
+
+# Display the plot
+print(volcano_plot)
+```
+
+```{r}
+# save plot
+#ggsave(file.path(plotdir, 'fig3A.metacyc_groups.pdf'), device = "pdf", dpi = 300, width = 8, height = 8)
+```
+
+# session info
+```{r}
+sessionInfo()
+```

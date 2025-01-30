@@ -1,0 +1,130 @@
+---
+title: "TUMS - Supplementary Data"
+subtitle: "Supplementary Figure 6 - Taxa Bar Plots showing Interindividual Variation"
+author: "Kimberley Parkin"
+---
+
+# Load packages
+```{r}
+library(microViz)
+library(phyloseq)
+library(ggplot2)
+```
+
+```{r}
+packageVersion('microViz')
+packageVersion('phyloseq')
+```
+
+## Create directories
+```{r}
+plotdir <- '/home/kparkin/file_workspace/Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/src/TUMS/Paper_2_RCT/figures'
+resdir <- '/home/kparkin/file_workspace/Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/src/TUMS/Paper_2_RCT/results'
+datadir <- '/home/kparkin/file_workspace/Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/data'
+```
+
+# Load in phyloseq object
+```{r}
+pseq <- readRDS(file.path(datadir, '/phyloseq_objects/TUMS_phyloseq_counts_complete.rds'))
+```
+
+```{r}
+# remove sequencing replicate samples
+pseq <- subset_samples(pseq, TUMS_ID != "NA")
+
+# change 'age' variable to character
+sample_data(pseq)$age <- as.character(sample_data(pseq)$age)
+```
+
+# Get metadata from phyloseq object
+```{r}
+metadata <- pseq %>%
+  sample_data() %>%
+  data.frame()
+```
+
+# Bar plots
+## Total population
+```{r}
+# taxa are ordered by overall sum of their counts across all samples in dataset
+
+# plot
+plot <- pseq %>%
+  comp_barplot(
+    tax_level = 'Species',
+    n_taxa = 15,
+    other_name = 'Other',
+    merge_other = TRUE,
+    bar_width = 1,
+    bar_outline_width = 0.03
+    ) +
+  theme_bw() +
+  theme(axis.ticks.y = element_blank(), 
+        axis.text.y = element_blank()) +
+  coord_flip() 
+  
+plot
+
+
+```
+
+## Facet by randomisation group (baseline samples)
+```{r}
+# plot
+pseq6 <- subset_samples(pseq, age == "6")
+
+plot <- pseq6 %>%
+  comp_barplot(
+    tax_level = 'Genus',
+    n_taxa = 15,
+    other_name = 'Other',
+    merge_other = TRUE,
+    bar_width = 1,
+    bar_outline_width = 0.03,
+    facet_by = 'randomisation_group'
+    ) +
+  theme_bw() +
+  theme(axis.ticks.y = element_blank(), 
+        axis.text.y = element_blank()) +
+  labs(title = "Taxa bar plots of baseline samples") +
+  coord_flip()
+  
+plot
+
+# save plot
+#ggsave(file.path(plotdir, 'supp6_taxaplots_6month.png'), device = "png", dpi = 300, height = 4, width = 13)
+```
+
+## Facet by randomisation group (18-month samples)
+```{r}
+# plot
+pseq18 <- subset_samples(pseq, age == "18")
+
+plot <- pseq18 %>%
+  comp_barplot(
+    tax_level = 'Genus',
+    n_taxa = 15,
+    other_name = 'Other',
+    merge_other = TRUE,
+    bar_width = 1,
+    bar_outline_width = 0.03,
+    facet_by = 'randomisation_group'
+    ) +
+  theme_bw() +
+  theme(axis.ticks.y = element_blank(), 
+        axis.text.y = element_blank()) +
+  labs(title = "Taxa bar plots of 18-month samples") +
+  coord_flip()
+  
+plot
+
+# save plot
+#ggsave(file.path(plotdir, 'supp6_taxabarplots_18month.png'), device = "png", dpi = 300, height = 4, width = 13)
+```
+
+# Session info
+```{r}
+sessionInfo()
+```
+
+*END*

@@ -1,0 +1,204 @@
+---
+title: "TUMS Supplementary Data - Figure 10"
+author: "David M"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+## Directories
+```{r}
+speciesdir <- "~/file_workspace/Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/data/microba_batch1/functional_profiles/by_species"
+samplesdir <- "~/file_workspace/Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/data/microba_batch1/functional_profiles/by_sample"
+```
+
+
+# read in MethylDackel calls
+
+```{r}
+read.func.profile <- function(file) {
+dat <- read.delim(
+file,
+header = T,
+sep = "\t",
+row.names = 1)
+}
+```
+
+```{r}
+#path to data files
+file.list <- list.files(file.path(speciesdir), recursive=TRUE, pattern="*MetaCyc_group.species.tsv", full=TRUE)
+
+#temporary list object 
+foo <- lapply(file.list, read.func.profile)
+
+# Transpose each data frame
+t_list <- lapply(foo, t)
+```
+
+```{r}
+# Function to subset or return NULL
+subset_antibiotic_resistance <- function(df) {
+  tryCatch(
+    df[, "Antibiotic Resistance", drop = FALSE],
+    error = function(e) NULL
+  )
+}
+
+```
+
+
+```{r}
+# Apply the function to each data frame in the list
+result_list <- lapply(t_list, subset_antibiotic_resistance)
+
+# Print the results
+#print(result_list)
+```
+
+
+```{r}
+filtered_result_list <- lapply(result_list, function(mat) {
+  if (!is.null(mat)) {
+    mat[mat[, 1] != 0, , drop = FALSE] 
+  } else {
+    NULL
+  }
+})
+
+```
+
+```{r}
+# Get all unique row names
+all_row_names <- unique(unlist(lapply(filtered_result_list, rownames)))
+
+# Create an empty matrix to store the combined results
+combined_matrix <- matrix(0, nrow = length(all_row_names), ncol = length(filtered_result_list))
+
+# Fill in the matrix
+for (i in seq_along(filtered_result_list)) {
+  df <- filtered_result_list[[i]]
+  if (!is.null(df)) {
+    matching_rows <- match(rownames(df), all_row_names)
+    combined_matrix[matching_rows, i] <- df[, 1]  # Assuming the values are in the first column
+  }
+}
+
+# Set row and column names
+rownames(combined_matrix) <- all_row_names
+colnames(combined_matrix) <- names(filtered_result_list)  # Assuming the data frames in the list have names
+
+print(combined_matrix)
+
+```
+```{r}
+# Function to extract sample name
+extract_sample_name <- function(path) {
+  # Find the start position of the pattern
+  start_pos <- regexpr("/by_species/", path) + nchar("/by_species/")
+  
+  # Find the end position (hyphen)
+  end_pos <- regexpr("-", path, start_pos)
+  
+  # Extract the substring
+  substr(path, start_pos, end_pos - 1)
+}
+
+# Extract sample names
+sample_names <- sapply(file.list, extract_sample_name)
+```
+
+```{r}
+# Rename columns in the combined matrix
+colnames(combined_matrix) <- sample_names
+
+# Remove columns named Unassigned $ Total..Assigned.
+combined_matrix <- combined_matrix[-c(2,3),]
+
+# Transpose the matrix
+ar.reads <- t(combined_matrix)
+```
+
+# read in metadata
+```{r}
+datadir <- '~/file_workspace/Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/data'
+```
+
+```{r}
+library(phyloseq)
+pseq <- readRDS(file.path(datadir, 'phyloseq_objects/TUMS_phyloseq_counts_complete.rds'))
+```
+
+# get metadata table
+```{r}
+metadata <- pseq %>%
+  sample_data() %>%
+  data.frame()
+```
+
+## subset to just the batch2
+```{r}
+metasub <- metadata[rownames(ar.reads),]
+
+metasub <- metasub %>%
+  dplyr::select(sample_ID,randomisation_group)
+```
+
+
+```{r}
+library(tidyverse)
+
+# Convert combined_matrix to a data frame and add sample names
+df <- as.data.frame(ar.reads) %>%
+  tibble::rownames_to_column("sample_ID")
+
+# find and remove any zeros
+to.remove <- which(rowSums(df[,-1])==0)
+df <- df[-to.remove,]
+
+# Join with metadata
+df_with_groups <- df %>%
+  left_join(metasub, by = "sample_ID")
+
+# Gather data into long format
+df_long <- df_with_groups %>%
+  pivot_longer(-c(sample_ID, randomisation_group), names_to = "Species", values_to = "ReadCount") %>%
+  group_by(Species, randomisation_group) %>%
+  summarise(TotalReadCount = log(sum(ReadCount, na.rm = TRUE)+1)) %>%
+  ungroup()
+
+```
+
+```{r}
+# Calculate total read count per species
+df_long_totals <- df_long %>%
+  group_by(Species) %>%
+  summarise(TotalReadCount = sum(TotalReadCount))
+
+# Order species based on total read count (descending)
+df_long$Species <- factor(df_long$Species, levels = df_long_totals$Species[order(-df_long_totals$TotalReadCount)])
+```
+
+
+
+```{r fig.width=8, fig.height=10}
+
+# Create heatmap
+ggplot(df_long, aes(x = randomisation_group, y = Species, fill = TotalReadCount)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "blue") +  # Choose your color scheme
+  theme_bw(base_size = 20,base_rect_size = 2) +
+  labs(x = "Group", y = "Species", title = "Read Counts by Species and Group") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+sessionInfo()
+```
+

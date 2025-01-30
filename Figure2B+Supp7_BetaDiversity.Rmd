@@ -1,0 +1,272 @@
+---
+title: "TUMS - Results"
+subtitle: "Figure 2B and Supplementary Figure 7 - Beta Diversity"
+author: "Kimberley Parkin"
+---
+
+# load packages
+```{r}
+library(tidyverse)
+library(phyloseq)
+library(vegan)
+```
+
+# create directories
+```{r}
+plotdir <- 'w://Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/src/TUMS/Paper_2_RCT/figures'
+resdir <- 'w://Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/src/TUMS/Paper_2_RCT/results'
+datadir <- 'w://Collaborative Projects/HPC_CEPI/ANALYSIS/Project_TUMS/data'
+```
+
+# load in phyloseq object
+```{r}
+pseq <- readRDS(file.path(datadir, '/phyloseq_objects/TUMS_phyloseq_counts_complete.rds'))
+```
+
+```{r}
+# remove sequencing replicate samples
+pseq <- subset_samples(pseq, TUMS_ID != "NA")
+
+# change 'age' variable to factor
+sample_data(pseq)$age <- as.character(sample_data(pseq)$age)
+```
+
+# recode age and randomisation_group variables
+```{r}
+# get metadata from phyloseq object
+metadata <- pseq %>%
+  sample_data() %>%
+  data.frame()
+```
+
+```{r}
+metadata <- metadata %>% 
+  dplyr::mutate(age = case_when(age == "6" ~ "6 months",
+                                age == "18" ~ "18 months",
+                                T ~ NA_character_),
+                age = as.factor(age),
+                age = relevel(age, "6 months"))
+
+metadata <- metadata %>% 
+  dplyr::mutate(randomisation_group = case_when(randomisation_group == "A" ~ "Treatment",
+                                                randomisation_group == "B" ~ "Control",
+                                                T ~ NA_character_),
+                randomisation_group = as.factor(randomisation_group),
+                randomisation_group = relevel(randomisation_group, "Control"))
+```
+
+# add metadata back into phyloseq object
+```{r}
+sample_data(pseq) <- metadata
+```
+
+*overall cohort*
+
+# calculate beta diversity of overall cohort
+```{r}
+# ordination
+pseq.ord <- ordinate(pseq, "NMDS", "bray")
+```
+
+# plot
+```{r}
+p <- plot_ordination(pseq, pseq.ord, color = "age", shape = "randomisation_group") +
+  geom_point(size = 3) +
+  labs(title = "Overall (n = 300)") + 
+  theme_bw() + 
+  theme(legend.position = "bottom",
+        text = element_text(size = 14),
+        legend.text = element_text(size = 10),
+        legend.title = element_blank())
+
+p <- p + scale_shape_manual(values = c(17, 1))
+
+p$layers <- p$layers[-1]
+
+p
+```
+
+```{r}
+# save plot
+#ggsave(file.path(plotdir, 'fig2B.betadiversity_overall.pdf'), device = "pdf", dpi = 300, width = 5, height = 5)
+```
+
+# PERMANOVA
+# get adonis data
+```{r}
+meta <- pseq %>%
+  sample_data() %>%
+  data.frame()
+
+otu.tab <- pseq %>%
+  otu_table() %>%
+  t() %>%
+  data.frame()
+```
+
+# run adonis test
+```{r}
+ad.test <- adonis2(otu.tab ~ age,
+                  data = meta,
+                  method = "bray")
+ad.test
+```
+
+```{r}
+R2 <- ad.test$R2[1]
+R2 # 11.3% of the variance in our data is explained by age, which significantly contributes to beta diversity
+```
+
+*6 month samples*
+
+# calculate beta diversity of 6 month samples
+```{r}
+# subset to 6 month samples
+pseq6 <- subset_samples(pseq, age == "6 months")
+```
+
+```{r}
+# ordination
+pseq.ord <- ordinate(pseq6, "NMDS", "bray")
+```
+
+# plot
+```{r}
+p <- plot_ordination(pseq6, pseq.ord, shape = "randomisation_group") +
+  geom_point(size = 3, color = "#F8766D") +
+  labs(title = "6 months (n = 170)") + 
+  theme_bw() + 
+  theme(legend.position = "bottom",
+        text = element_text(size = 14),
+        legend.text = element_text(size = 10),
+        legend.title = element_blank())
+
+p <- p + scale_shape_manual(values = c(17, 1))
+
+p$layers <- p$layers[-1]
+
+p
+```
+
+```{r}
+# save plot
+#ggsave(file.path(plotdir, 'supplement7A.betadiversity_6m.png'), device = "png", dpi = 300, width = 5, height = 5)
+```
+
+# PERMANOVA
+
+# get adonis data
+```{r}
+meta <- pseq6 %>%
+  sample_data() %>%
+  data.frame()
+
+otu.tab <- pseq6 %>%
+  otu_table() %>%
+  t() %>%
+  data.frame()
+```
+
+# run adonis test
+```{r}
+ad.test <- adonis2(otu.tab ~ randomisation_group,
+                  data = meta,
+                  method = "bray")
+ad.test
+```
+
+```{r}
+R2 <- ad.test$R2[1]
+R2 # 0.6% of the variance in our data is explained by treatment group, which does not significantly contributes to beta diversity
+```
+
+*18 month samples*
+
+# calculate beta diversity of 18 month samples
+```{r}
+#subset to 6 month samples
+pseq18 <- subset_samples(pseq, age == "18 months")
+```
+
+```{r}
+# ordination
+pseq.ord <- ordinate(pseq18, "NMDS", "bray")
+```
+
+# plot
+```{r}
+p <- plot_ordination(pseq18, pseq.ord, shape = "randomisation_group") +
+  geom_point(size = 3, color = "#00BFC4") +
+  labs(title = "18 months (n = 130)") + 
+  theme_bw() + 
+  theme(legend.position = "bottom",
+        text = element_text(size = 14),
+        legend.text = element_text(size = 10),
+        legend.title = element_blank())
+
+p <- p + scale_shape_manual(values = c(17, 1))
+
+p$layers <- p$layers[-1]
+
+p
+```
+
+```{r}
+# save plot
+#ggsave(file.path(plotdir, 'supplement7B.betadiversity_18m.png'), device = "png", dpi = 300, width = 5, height = 5)
+```
+
+# PERMANOVA
+
+# get adonis data
+```{r}
+meta <- pseq18 %>%
+  sample_data() %>%
+  data.frame()
+
+otu.tab <- pseq18 %>%
+  otu_table() %>%
+  t() %>%
+  data.frame()
+```
+
+# run adonis test
+```{r}
+ad.test <- adonis2(otu.tab ~ randomisation_group,
+                  data = meta,
+                  method = "bray")
+ad.test
+```
+
+```{r}
+R2 <- ad.test$R2[1]
+R2 # 0.6% of the variance in our data is explained by treatment group, which does not significantly contributes to beta diversity
+```
+
+# calculate confidence interval
+```{r}
+set.seed(123) # For reproducibility
+n_boot <- 1000 # Number of bootstrap samples
+
+# Create a function to calculate R2 for each bootstrap sample
+bootstrap_R2 <- function(data, formula, dist_matrix, ...) {
+  boot_data <- data[sample(nrow(data), replace = TRUE), ]
+  adonis_boot <- adonis2(as.formula(formula), data = boot_data, permutations = 999, method = dist_matrix, ...)
+  return(adonis_boot$R2[1])
+}
+
+# Running bootstrapping
+boot_R2_values <- replicate(n_boot, 
+                            bootstrap_R2(meta, "otu.tab ~ randomisation_group", "bray"))
+
+# Calculate 95% confidence interval
+ci_lower <- quantile(boot_R2_values, 0.025)
+ci_upper <- quantile(boot_R2_values, 0.975)
+ci_lower
+ci_upper
+```
+
+# session info
+```{r}
+sessionInfo()
+```
