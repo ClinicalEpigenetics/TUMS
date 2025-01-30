@@ -2,11 +2,11 @@
 **Project**  
 *Study: Water Quality and the Microbiome Study*  
 *PI: David Martino*  
-*contact: David.Martino@telethonkids.org.au*   
+*contact: David.Martino@thekids.org.au*   
 
 **Project lead**  
 *Kimberley Parkin*  
-*Kimberley.Parkin@telethonkids.org.au*  
+*Kimberley.Parkin@thekids.org.au*  
 
 **Acknowledgements**  
 
