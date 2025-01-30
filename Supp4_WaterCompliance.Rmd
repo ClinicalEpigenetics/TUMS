@@ -1,0 +1,168 @@
+---
+title: "Untitled"
+author: "Nikki Schultz"
+date: "2025-01-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+ Setup
+
+## Directories
+```{r}
+
+datadir <- '~/file_workspace/Collaborative\ Projects/HPC_CEPI/ANALYSIS/Project_TUMS/data/REDCap_data_extract'
+main_datadir <- '~/file_workspace/Collaborative\ Projects/HPC_CEPI/ANALYSIS/Project_TUMS/data/metadata_tables'
+reportdir <- '~/file_workspace/Collaborative\ Projects/HPC_CEPI/ANALYSIS/Project_TUMS/results'
+plotdir <- '~/file_workspace/Collaborative\ Projects/HPC_CEPI/ANALYSIS/Project_TUMS/plots'
+```
+
+## Libraries
+```{r message=FALSE}
+library(tidyverse)
+library(dplyr)
+library(tableone)
+library(knitr)
+```
+
+## Load Data
+```{r}
+# Load REDcap data export from water data surveys and hospitalization records
+Tidy_data <- read.csv(file.path(datadir,'REDcap_waterpracticessurvey_tidy.csv'), na.strings = c("", " ", "NA"))
+metadata <- read.csv(file.path(main_datadir,'complete_metadata.csv'))
+```
+
+
+## Data Cleaning
+```{r fig.width= 10}
+# fixing the survey data for ease of us
+## round days outside of home to lowest
+Tidy_data$In.an.average.week..how.many.days.does.your.child.spend.outside.of.the.home..at.daycare..relatives.houses.etc... <- round (as.numeric(Tidy_data$In.an.average.week..how.many.days.does.your.child.spend.outside.of.the.home..at.daycare..relatives.houses.etc...))
+
+# Join with metadata
+
+# Select tidy columns
+tidy_data_sub <- Tidy_data %>%
+  dplyr::select(c(1,2,7,8,10,11))
+  
+# rename columns 
+colnames(tidy_data_sub) <- c("TUMS_ID", "Event.Name","Age_first_non-boiled_tap_water",
+                       "Daily_cups_filtered_water", "Days_per_week_outside_home", "Outside_supply_filtered_water")
+# fix sample IDs
+tidy_data_sub$TUMS_ID <- paste("TUMS-", tidy_data_sub$TUMS_ID, sep = "")
+
+# Select metadata columns
+metadata_sub <-  metadata %>%
+  select(c("TUMS_ID", "randomisation_group")) %>%
+  distinct(TUMS_ID, .keep_all = TRUE) %>%
+  mutate_all(~ na_if(., ""))
+
+metadata_sub <- metadata_sub %>%
+  mutate(Randomisation_group = ifelse(metadata_sub$randomisation_group == "A", "Intervention", "Control")) %>% # fix the randomisation group
+  select(-2)
+
+#join two tables
+water_data_v2 <- tidy_data_sub %>%
+  left_join(metadata_sub, by = "TUMS_ID") 
+
+# Remove non-response rows - 118 rows removed.
+columns_to_check <- c("Age_first_non-boiled_tap_water",
+                       "Daily_cups_filtered_water", "Outside_supply_filtered_water")
+water_data_v3 <- water_data_v2 %>%
+  filter(rowSums(is.na(dplyr::select(., all_of(columns_to_check)))) < length(columns_to_check))
+# remove NAs from randomisation group
+water_data_v3 <- water_data_v3 %>% filter(!is.na(Randomisation_group))
+
+# Remove nonsense responses - 10 removed
+water_data_v3 <- water_data_v3 %>%
+  filter(Days_per_week_outside_home <= 7)
+
+
+# change order of Event.Name
+water_data_v3$Event.Name <- factor(water_data_v3$Event.Name, levels = c("9 Month Water Survey", "12 Month Water Survey", "15 Month Water Survey"))
+
+#level 
+water_data_v3$Outside_supply_filtered_water <- factor(water_data_v3$Outside_supply_filtered_wate, levels = c("Never", "Sometimes", "Always"))
+
+# turn cups of water drunk into factor
+water_data_v3$Daily_cups_filtered_water <- factor(water_data_v3$Daily_cups_filtered_water, levels = c("less than 1 cup", "1-2 cups", 
+                                                                                                      "3-4 cups", "5-6 cups", "7+ cups"))
+
+
+
+```
+
+## Supp.Fig.A: Cups of Water drunk per day by Group and Survey Timepoint *****
+```{r}
+
+ggplot(water_data_v3, aes(Daily_cups_filtered_water)) +
+  geom_bar() +
+  facet_wrap(vars(Randomisation_group, Event.Name)) +
+  labs(title = "Parent-reported consumption of study supplied water per day") +
+  xlab("Cups per day") +
+  theme(axis.text = element_text(angle = 45))
+```
+
+## Supp.Fig.B: How often is filtered water provided outside home?
+```{r}
+# generate counts
+water_data_counts <- water_data_v3 %>%
+   group_by(Outside_supply_filtered_water, Randomisation_group) %>%
+  summarise(count = n())
+
+
+
+ggplot(water_data_counts, aes(x = Outside_supply_filtered_water, y = count, fill = Randomisation_group)) +
+  geom_bar(stat = "identity", position = "dodge") +  # Use 'dodge' to place bars side by side
+  labs(title = "Frequency of study supplied water provided outside the home",
+       x = "Response category",
+       y = "Count",
+       fill = "Treatment") +
+  geom_text(aes(label = count), position = position_dodge(width = 0.9), vjust = -0.5) +
+  theme_bw()
+```
+
+
+## Age of introduction of unboiled water to diet
+```{r}
+# look at age of first introduction of non-boiled tap water
+water_v3_sub <- water_data_v3 %>%
+  select(c(TUMS_ID, Event.Name, `Age_first_non-boiled_tap_water`, Randomisation_group)) 
+
+# Change obvious data entry errors (out by factor of 10)
+ wide_boiled <- water_v3_sub %>%
+   pivot_wider(names_from = Event.Name, values_from = `Age_first_non-boiled_tap_water`) %>%
+  mutate(across(c("9 Month Water Survey", "12 Month Water Survey", "15 Month Water Survey"), ~ ifelse(. == 1.0, 10, .))) %>%
+     mutate(across(c("9 Month Water Survey", "12 Month Water Survey", "15 Month Water Survey"), ~ ifelse(. == 1.2, 12, .))) %>%
+  mutate(across(c("9 Month Water Survey", "12 Month Water Survey", "15 Month Water Survey"), ~ ifelse(. == 0.9, 9, .)))
+ 
+ # Average the response over the three surveys
+ wide_boiled_average <- wide_boiled %>%
+   rowwise() %>%
+  mutate(average = mean(c_across("9 Month Water Survey":"15 Month Water Survey"), na.rm = TRUE)) %>%
+  ungroup() 
+ 
+ wide_boiled_average$average <-round(wide_boiled_average$average)
+```
+
+
+```{r}
+# plot
+## faceted by Randomisation group
+ggplot(wide_boiled_average, aes(average)) +
+  geom_histogram(binwidth = 1) +
+  theme_bw() +
+  labs(title = "Average age of introduction of unboiled tap water to the infant diet") +
+  xlab("Age (months)") +
+  facet_wrap(~Randomisation_group)
+```
+
+```{r}
+write.csv(complete_asv_table, file=file.path(datadir, "TUMS_asv_table.csv"))
+write.csv(complete_functional_data, file = file.path(main_datadir, "TUMS_functional_data.csv"))
+write.csv(complete_tax_table, file = file.path(main_datadir, "TUMS_tax_table.csv"))
+```
+
