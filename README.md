@@ -8,6 +8,7 @@
 *Kimberley Parkin*  
 *Kimberley.Parkin@thekids.org.au*  
 
-**Acknowledgements**  
+**Contact**
+For questions or feedback, please contact the corresponding author: david.martino@thekids.org.au
 
 
